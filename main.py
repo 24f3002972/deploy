@@ -41,7 +41,7 @@ def stats(values: str):
     maximum = max(numbers)
     mean = total / count
     return {
-    "email": "your-email@example.com",
+    "email": "24f3002972@ds.study.iitn.ac.in",
     "count": count,
     "sum": total,
     "min": minimum,
