@@ -1,73 +1,184 @@
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-import jwt
+import os
+from typing import List
 
-app = FastAPI()
+import yaml
+from dotenv import load_dotenv
+from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 
-# ==========================
-# Assignment Configuration
-# ==========================
+app = FastAPI(title="12-Factor Config Precedence Service")
 
-ISSUER = "https://idp.exam.local"
-AUDIENCE = "tds-gc34ti1p.apps.exam.local"
+# --------------------------------------------------
+# CORS
+# --------------------------------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows the grader/browser to access the API
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-PUBLIC_KEY = """
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2okOHspNjgA+2rTLbeuY
-cxiP/hG8C6Sb9iwg3yiLAA4HCnpITcbWCSelbvbYGuc3EbNy4xFyf5Cbj5DHJMID
-EkryOgyd2giIIIBOUBj8S63uGcnRpOBh9NFatfNwheKuzsPuVNldu6A9cNteNpXc
-WyJjG2axVfmq7i6SuKr1JoWYG7xTTAvKPujSl4OtsQfO3h5NepzdfXpr28oNnzfW
-ed+zclR6BcmNNo/WVfJ4xyCLSf0BCOgdTgW6PdaChd1l9VDetJZVEgC5tkyvXsfI
-SI6iyrYbKR0NEBSqq4XkadEjsCs4F1RncsS4LlgniT7GlkL9Mce3b0wGLs9/7ZIX
-dQIDAQAB
------END PUBLIC KEY-----
-"""
+# --------------------------------------------------
+# Load .env
+# --------------------------------------------------
+load_dotenv()
+
+# --------------------------------------------------
+# Default configuration (Lowest precedence)
+# --------------------------------------------------
+DEFAULT_CONFIG = {
+    "port": 8000,
+    "workers": 1,
+    "debug": False,
+    "log_level": "info",
+    "api_key": "default-secret-000",
+}
 
 
-# ==========================
-# Request Model
-# ==========================
+# --------------------------------------------------
+# Helper Functions
+# --------------------------------------------------
+def to_bool(value):
+    """Convert various truthy values to bool."""
+    return str(value).strip().lower() in {
+        "true",
+        "1",
+        "yes",
+        "on",
+    }
 
-class TokenRequest(BaseModel):
-    token: str
+
+def coerce_types(config):
+    """Convert values to required types."""
+    if "port" in config:
+        config["port"] = int(config["port"])
+
+    if "workers" in config:
+        config["workers"] = int(config["workers"])
+
+    if "debug" in config:
+        config["debug"] = to_bool(config["debug"])
+
+    if "log_level" in config:
+        config["log_level"] = str(config["log_level"])
+
+    if "api_key" in config:
+        config["api_key"] = str(config["api_key"])
+
+    return config
 
 
-# ==========================
-# Health Check (Optional)
-# ==========================
+# --------------------------------------------------
+# Read YAML configuration
+# --------------------------------------------------
+def load_yaml():
+    filename = "config.development.yaml"
 
+    if not os.path.exists(filename):
+        return {}
+
+    with open(filename, "r") as f:
+        data = yaml.safe_load(f)
+
+    return data or {}
+
+
+# --------------------------------------------------
+# Read .env configuration
+# Alias:
+# NUM_WORKERS -> workers
+# --------------------------------------------------
+def load_dotenv_config():
+    config = {}
+
+    num_workers = os.getenv("NUM_WORKERS")
+    if num_workers is not None:
+        config["workers"] = num_workers
+
+    return config
+
+
+# --------------------------------------------------
+# Read APP_* environment variables
+# --------------------------------------------------
+def load_os_config():
+    mapping = {
+        "APP_PORT": "port",
+        "APP_WORKERS": "workers",
+        "APP_DEBUG": "debug",
+        "APP_LOG_LEVEL": "log_level",
+        "APP_API_KEY": "api_key",
+    }
+
+    config = {}
+
+    for env_name, key in mapping.items():
+        value = os.getenv(env_name)
+        if value is not None:
+            config[key] = value
+
+    return config
+
+
+# --------------------------------------------------
+# Build effective configuration
+# --------------------------------------------------
+def build_config(cli_overrides):
+    # Lowest precedence
+    config = DEFAULT_CONFIG.copy()
+
+    # YAML
+    config.update(load_yaml())
+
+    # .env
+    config.update(load_dotenv_config())
+
+    # APP_* environment variables
+    config.update(load_os_config())
+
+    # CLI overrides (Highest precedence)
+    for item in cli_overrides:
+        if "=" not in item:
+            continue
+
+        key, value = item.split("=", 1)
+        config[key] = value
+
+    # Convert values to required types
+    config = coerce_types(config)
+
+    # Mask secret
+    config["api_key"] = "****"
+
+    return config
+
+
+# --------------------------------------------------
+# Endpoint
+# --------------------------------------------------
+@app.get("/effective-config")
+def effective_config(
+    set: List[str] = Query(default=[])
+):
+    return build_config(set)
+
+
+# --------------------------------------------------
+# Optional root endpoint
+# --------------------------------------------------
 @app.get("/")
-def home():
-    return {"message": "OAuth Token Verification Service is running"}
+def root():
+    return {
+        "message": "FastAPI Config Precedence Service",
+        "endpoint": "/effective-config",
+    }
 
 
-# ==========================
-# Verify Endpoint
-# ==========================
+# --------------------------------------------------
+# Local development
+# --------------------------------------------------
+if __name__ == "__main__":
+    import uvicorn
 
-@app.post("/verify")
-def verify(data: TokenRequest):
-    try:
-        payload = jwt.decode(
-            data.token,
-            PUBLIC_KEY,
-            algorithms=["RS256"],
-            issuer=ISSUER,
-            audience=AUDIENCE,
-        )
-
-        return {
-            "valid": True,
-            "email": payload.get("email"),
-            "sub": payload.get("sub"),
-            "aud": payload.get("aud"),
-        }
-
-    except jwt.PyJWTError:
-        return JSONResponse(
-            status_code=401,
-            content={
-                "valid": False
-            }
-        )
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)
