@@ -1,40 +1,50 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import JSONResponse
-import time
+from fastapi import Request
+from fastapi.responses import JSONResponse
 import uuid
+import time
 
 app = FastAPI()
 
-ALLOWED_ORIGIN = "https://dash-z6b655.example.com"
-EMAIL = "your-email@example.com"
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[ALLOWED_ORIGIN],
-    allow_credentials=False,
-    allow_methods=["GET", "OPTIONS"],
+    allow_origins=[
+        "https://dash-z6b655.example.com"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
 @app.middleware("http")
-async def add_timing_and_request_id(request: Request, call_next):
-    request_id = str(uuid.uuid4())
-    start = time.perf_counter()
+async def add_headers(request: Request, call_next):
+
+    start = time.time()
+
     response = await call_next(request)
-    duration = time.perf_counter() - start
-    response.headers["X-Request-ID"] = request_id
-    response.headers["X-Process-Time"] = f"{duration:.6f}"
+
+    process_time = time.time() - start
+
+    response.headers["X-Request-ID"] = str(uuid.uuid4())
+
+    response.headers["X-Process-Time"] = f"{process_time:.6f}"
+
     return response
 
 @app.get("/stats")
-async def stats(values: str = ""):
-    nums = [int(x) for x in values.split(",") if x.strip()]
+def stats(values: str):
+    numbers = [int(x) for x in values.split(",")]
+    count = len(numbers)
+    total = sum(numbers)
+    minimum = min(numbers)
+    maximum = max(numbers)
+    mean = total / count
     return {
-        "email": EMAIL,
-        "count": len(nums),
-        "sum": sum(nums),
-        "min": min(nums),
-        "max": max(nums),
-        "mean": round(sum(nums) / len(nums), 2),
+    "email": "your-email@example.com",
+    "count": count,
+    "sum": total,
+    "min": minimum,
+    "max": maximum,
+    "mean": mean
     }
