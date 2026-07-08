@@ -103,19 +103,11 @@ def load_dotenv_config():
 # Read APP_* environment variables
 # --------------------------------------------------
 def load_os_config():
-    mapping = {
-        "APP_PORT": "port",
-        "APP_WORKERS": "workers",
-        "APP_DEBUG": "debug",
-        "APP_LOG_LEVEL": "log_level",
-        "APP_API_KEY": "api_key",
-    }
-
     config = {}
 
-    for env_name, key in mapping.items():
-        value = os.getenv(env_name)
-        if value is not None:
+    for env_name, value in os.environ.items():
+        if env_name.startswith("APP_"):
+            key = env_name[4:].lower()
             config[key] = value
 
     return config
@@ -158,12 +150,21 @@ def build_config(cli_overrides):
 # Endpoint
 # --------------------------------------------------
 @app.get("/effective-config")
-def effective_config(
-    set: List[str] = Query(default=[])
-):
-    return build_config(set)
+def effective_config(set: List[str] = Query(default=[])):
+    config = build_config(set)
 
+    return {
+        "port": config.get("port"),
+        "workers": config.get("workers"),
+        "debug": config.get("debug"),
+        "log_level": config.get("log_level"),
+        "api_key": "****",
+    }
 
+@app.get("/debug")
+def debug():
+    return dict(os.environ)
+    
 # --------------------------------------------------
 # Optional root endpoint
 # --------------------------------------------------
