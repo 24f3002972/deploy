@@ -1,50 +1,73 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi import Request
 from fastapi.responses import JSONResponse
-import uuid
-import time
+from pydantic import BaseModel
+import jwt
 
 app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://dash-z6b655.example.com"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# ==========================
+# Assignment Configuration
+# ==========================
 
-@app.middleware("http")
-async def add_headers(request: Request, call_next):
+ISSUER = "https://idp.exam.local"
+AUDIENCE = "tds-gc34ti1p.apps.exam.local"
 
-    start = time.time()
+PUBLIC_KEY = """
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2okOHspNjgA+2rTLbeuY
+cxiP/hG8C6Sb9iwg3yiLAA4HCnpITcbWCSelbvbYGuc3EbNy4xFyf5Cbj5DHJMID
+EkryOgyd2giIIIBOUBj8S63uGcnRpOBh9NFatfNwheKuzsPuVNldu6A9cNteNpXc
+WyJjG2axVfmq7i6SuKr1JoWYG7xTTAvKPujSl4OtsQfO3h5NepzdfXpr28oNnzfW
+ed+zclR6BcmNNo/WVfJ4xyCLSf0BCOgdTgW6PdaChd1l9VDetJZVEgC5tkyvXsfI
+SI6iyrYbKR0NEBSqq4XkadEjsCs4F1RncsS4LlgniT7GlkL9Mce3b0wGLs9/7ZIX
+dQIDAQAB
+-----END PUBLIC KEY-----
+"""
 
-    response = await call_next(request)
 
-    process_time = time.time() - start
+# ==========================
+# Request Model
+# ==========================
 
-    response.headers["X-Request-ID"] = str(uuid.uuid4())
+class TokenRequest(BaseModel):
+    token: str
 
-    response.headers["X-Process-Time"] = f"{process_time:.6f}"
 
-    return response
+# ==========================
+# Health Check (Optional)
+# ==========================
 
-@app.get("/stats")
-def stats(values: str):
-    numbers = [int(x) for x in values.split(",")]
-    count = len(numbers)
-    total = sum(numbers)
-    minimum = min(numbers)
-    maximum = max(numbers)
-    mean = total / count
-    return {
-    "email": "24f3002972@ds.study.iitm.ac.in",
-    "count": count,
-    "sum": total,
-    "min": minimum,
-    "max": maximum,
-    "mean": mean
-    }
+@app.get("/")
+def home():
+    return {"message": "OAuth Token Verification Service is running"}
+
+
+# ==========================
+# Verify Endpoint
+# ==========================
+
+@app.post("/verify")
+def verify(data: TokenRequest):
+    try:
+        payload = jwt.decode(
+            data.token,
+            PUBLIC_KEY,
+            algorithms=["RS256"],
+            issuer=ISSUER,
+            audience=AUDIENCE,
+        )
+
+        return {
+            "valid": True,
+            "email": payload.get("email"),
+            "sub": payload.get("sub"),
+            "aud": payload.get("aud"),
+        }
+
+    except jwt.PyJWTError:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "valid": False
+            }
+        )
