@@ -1,0 +1,43 @@
+from fastapi import FastAPI
+import redis
+
+app = FastAPI()
+
+# Connect to Redis service inside Docker Compose
+r = redis.Redis(
+    host="redis",
+    port=6379,
+    decode_responses=True
+)
+
+@app.post("/hit/{key}")
+def hit(key: str):
+    count = r.incr(key)
+    return {
+        "key": key,
+        "count": count
+    }
+
+@app.get("/count/{key}")
+def count(key: str):
+    value = r.get(key)
+
+    if value is None:
+        value = 0
+
+    return {
+        "key": key,
+        "count": int(value)
+    }
+
+@app.get("/healthz")
+def health():
+    if r.ping():
+        return {
+            "status": "ok",
+            "redis": "up"
+        }
+
+    return {
+        "status": "error"
+    }
